@@ -8,6 +8,7 @@ import android.location.Location
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Looper
 import android.provider.Settings
 import android.util.TypedValue
 import com.google.android.material.snackbar.Snackbar
@@ -17,8 +18,7 @@ import android.view.MenuItem
 import androidx.appcompat.app.AlertDialog
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.google.android.gms.location.FusedLocationProviderClient
-import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.*
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.OnMapReadyCallback
@@ -37,6 +37,16 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var googleMap: GoogleMap
     private lateinit var fusedLocationProviderClient: FusedLocationProviderClient
+
+    private val locationPermissionGranted: Boolean
+        get() = isPermissionGranted(Manifest.permission.ACCESS_FINE_LOCATION,this)
+
+    private val locationCallback = object : LocationCallback() {
+        override fun onLocationResult(locationResult: LocationResult?) {
+            locationResult ?: return
+            locationResult.locations.forEach(this@MainActivity::updateMap)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -62,6 +72,24 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (locationPermissionGranted) {
+            val locationRequest = LocationRequest().apply {
+                priority = LocationRequest.PRIORITY_HIGH_ACCURACY
+                interval = 30_000L //30 second intervals
+            }
+            fusedLocationProviderClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper())
+        }
+    }
+
+    override fun onDestroy() {
+        if (locationPermissionGranted) {
+            fusedLocationProviderClient.removeLocationUpdates(locationCallback)
+        }
+        super.onDestroy()
+    }
+
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<out String>,
@@ -83,7 +111,7 @@ class MainActivity : AppCompatActivity() {
     private fun checkLocationPermissions() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
         when {
-            isPermissionGranted(Manifest.permission.ACCESS_FINE_LOCATION,this) -> getLastKnownLocationAndUpdateMap()
+            locationPermissionGranted -> getLastKnownLocationAndUpdateMap()
             neverAskAgainSelected(Manifest.permission.ACCESS_FINE_LOCATION) -> showLinkToSettingsToEnableLocationDialog()
             shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION) -> showRationaleDialogForLocationPermission()
             else -> requestLocationPermission()
@@ -129,12 +157,16 @@ class MainActivity : AppCompatActivity() {
     private fun getLastKnownLocationAndUpdateMap() {
         fusedLocationProviderClient.lastLocation.addOnSuccessListener { location: Location? ->
             location ?: return@addOnSuccessListener
-            val latLng = LatLng(location.latitude, location.longitude)
-            googleMap.addMarker(MarkerOptions().apply {
-                position(latLng)
-            })
-            googleMap.animateCamera(CameraUpdateFactory.newLatLng(latLng))
+            updateMap(location)
         }
+    }
+
+    private fun updateMap(location: Location) {
+        val latLng = LatLng(location.latitude, location.longitude)
+        googleMap.addMarker(MarkerOptions().apply {
+            position(latLng)
+        })
+        googleMap.animateCamera(CameraUpdateFactory.newLatLng(latLng))
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -152,5 +184,5 @@ class MainActivity : AppCompatActivity() {
             else -> super.onOptionsItemSelected(item)
         }
     }
-    
+
 }
